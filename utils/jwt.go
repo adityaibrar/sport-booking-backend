@@ -29,7 +29,7 @@ func AuthMiddleware(c *fiber.Ctx) error {
 	}
 
 	var tokenString string
-	fmt.Sscanf(authHeader, "Beare %s", &tokenString)
+	fmt.Sscanf(authHeader, "Bearer %s", &tokenString)
 
 	if tokenString == "" {
 		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{
@@ -46,6 +46,27 @@ func AuthMiddleware(c *fiber.Ctx) error {
 	if err != nil || !token.Valid {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "Token is invalid",
+		})
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok || !token.Valid {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid token claims",
+		})
+	}
+
+	c.Locals("user_id", claims["user_id"])
+	c.Locals("role", claims["role"])
+
+	return c.Next()
+}
+
+func CheckRole(c *fiber.Ctx) error {
+	roleVal := c.Locals("role")
+	role, ok := roleVal.(string)
+	if !ok || role != "admin" {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+			"error": "Admin access required",
 		})
 	}
 	return c.Next()
