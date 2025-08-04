@@ -4,10 +4,11 @@ import "gorm.io/gorm"
 
 type Venue struct {
 	gorm.Model
-	Name         string  `gorm:"not null" json:"name"`
-	Category     string  `gorm:"not null" json:"category"`
-	PricePerHour float64 `gorm:"not null" json:"price_per_hour"`
-	Description  string  `gorm:"not null" json:"description"`
+	Name         string    `gorm:"not null" json:"name"`
+	Category     string    `gorm:"not null" json:"category"`
+	PricePerHour float64   `gorm:"not null" json:"price_per_hour"`
+	Description  string    `gorm:"not null" json:"description"`
+	Bookings     []Booking `gorm:"foreignKey:VenueID" json:"bookings,omitempty"` // Add relationship
 }
 
 type VenueRequest struct {
