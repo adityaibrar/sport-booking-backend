@@ -13,7 +13,7 @@ func GenerateJWT(userID uint, role string) (string, error) {
 	claims := jwt.MapClaims{
 		"user_id": userID,
 		"role":    role,
-		"exp_id":  time.Now().Add(time.Hour * 24).Unix(),
+		"exp":     time.Now().Add(time.Hour * 24).Unix(), // Fixed: "exp_id" -> "exp"
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err := token.SignedString([]byte(os.Getenv("JWT_SECRET")))
@@ -23,7 +23,7 @@ func GenerateJWT(userID uint, role string) (string, error) {
 func AuthMiddleware(c *fiber.Ctx) error {
 	authHeader := c.Get("Authorization")
 	if authHeader == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{ // Fixed: StatusBadRequest -> StatusUnauthorized
 			"error": "No Token Provided",
 		})
 	}
@@ -32,7 +32,7 @@ func AuthMiddleware(c *fiber.Ctx) error {
 	fmt.Sscanf(authHeader, "Bearer %s", &tokenString)
 
 	if tokenString == "" {
-		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{ // Fixed: StatusBadGateway -> StatusUnauthorized
 			"error": "Token format is invalid",
 		})
 	}
@@ -43,19 +43,35 @@ func AuthMiddleware(c *fiber.Ctx) error {
 		}
 		return []byte(os.Getenv("JWT_SECRET")), nil
 	})
+
 	if err != nil || !token.Valid {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{ // Fixed: StatusBadRequest -> StatusUnauthorized
 			"error": "Token is invalid",
 		})
 	}
+
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok || !token.Valid {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{ // Fixed: StatusBadRequest -> StatusUnauthorized
 			"error": "Invalid token claims",
 		})
 	}
 
-	c.Locals("user_id", claims["user_id"])
+	// Check token expiration
+	if exp, ok := claims["exp"].(float64); ok {
+		if time.Now().Unix() > int64(exp) {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"error": "Token has expired",
+			})
+		}
+	}
+
+	// Convert user_id to uint to avoid type assertion issues later
+	if userIDFloat, ok := claims["user_id"].(float64); ok {
+		c.Locals("user_id", uint(userIDFloat))
+	} else {
+		c.Locals("user_id", claims["user_id"])
+	}
 	c.Locals("role", claims["role"])
 
 	return c.Next()
