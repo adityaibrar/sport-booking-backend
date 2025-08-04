@@ -17,7 +17,7 @@ func NewBookingController(db *gorm.DB) *BookingController {
 }
 
 func (bc *BookingController) CreateBooking(c *fiber.Ctx) error {
-	userID := c.Locals("user_id").(float64)
+	userID := c.Locals("user_id").(uint)
 
 	var request models.BookingRequest
 	if err := c.BodyParser(&request); err != nil {
@@ -28,7 +28,7 @@ func (bc *BookingController) CreateBooking(c *fiber.Ctx) error {
 	}
 
 	var venue models.Venue
-	if err := bc.DB.Find(&venue, request.VenueID).Error; err != nil {
+	if err := bc.DB.First(&venue, request.VenueID).Error; err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 			"error": "Venue not found",
 		})
@@ -80,4 +80,5 @@ func (bc *BookingController) CreateBooking(c *fiber.Ctx) error {
 		"message":      "Booking created successfully",
 		"data_booking": booking,
 	})
+
 }

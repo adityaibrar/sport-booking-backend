@@ -36,6 +36,7 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 
 	user.Get("/venues", venueController.GetListVenue)
 	user.Get("/venues/:id", venueController.GetDetailVenue)
+	user.Post("/venues/availability", venueController.CheckAvailability)
 	// Booking
 	booking := user.Group("/booking")
 	booking.Post("/", bookingController.CreateBooking)
