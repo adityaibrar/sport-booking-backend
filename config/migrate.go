@@ -7,27 +7,39 @@ import (
 	"gorm.io/gorm"
 )
 
+func ResetAndMigrate(db *gorm.DB) error {
+	models := []interface{}{
+		&models.User{},
+		&models.Venue{},
+		&models.Booking{},
+	}
+
+	if err := db.Migrator().DropTable(models...); err != nil {
+		log.Printf("Failed to drop tables: %v", err)
+		return err
+	}
+
+	if err := db.AutoMigrate(models...); err != nil {
+		log.Printf("Failed to auto migrate: %v", err)
+		return err
+	}
+
+	log.Println("Database reset and migration completed successfully")
+	return nil
+}
+
 func Migrate(db *gorm.DB) error {
 	err := db.AutoMigrate(
 		&models.User{},
 		&models.Venue{},
+		&models.Booking{},
 	)
 
 	if err != nil {
-		log.Printf("Failed to auto migrate :%v", err)
+		log.Printf("Failed to auto migrate: %v", err)
 		return err
 	}
 
-	err = db.Exec(`
-		ALTER TABLE bookings
-		ADD CONSTRAINT fk_bookings_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-		ADD CONSTRAINT fk_bookings_venue FOREIGN KEY (venue_id) REFERENCES venues(id) ON DELETE CASCADE
-	`).Error
-	if err != nil {
-		log.Printf("Failed to add foreign key constraints: %v", err)
-		return err
-	}
-
-	log.Println("Database migratrion completed succesfully")
+	log.Println("Database migration completed successfully")
 	return nil
 }
