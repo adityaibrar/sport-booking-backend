@@ -13,7 +13,7 @@ func SetupUserRoutes(version fiber.Router, db *gorm.DB) {
 	venueController := controllers.NewVenueController(db)
 
 	user := version.Group("/user", utils.AuthMiddleware)
-	
+
 	venue := user.Group("/venues")
 	venue.Get("/", venueController.GetListVenue)
 	venue.Get("/:id", venueController.GetDetailVenue)
@@ -22,4 +22,5 @@ func SetupUserRoutes(version fiber.Router, db *gorm.DB) {
 	booking := user.Group("/booking")
 	booking.Post("/", bookingController.CreateBooking)
 	booking.Post("/cancel/:id", bookingController.CancelBooking)
+	booking.Get("/history/:id", bookingController.HistoryBookingUser)
 }
