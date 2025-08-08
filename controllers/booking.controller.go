@@ -210,3 +210,23 @@ func (bc *BookingController) GetUserBookings(c *fiber.Ctx) error {
 		},
 	})
 }
+
+func (bc *BookingController) CancelBooking(c *fiber.Ctx) error {
+	id := c.Params("id")
+	var booking models.Booking
+	if err := bc.DB.Where("id = ? AND status = ?", id, "pending").First(&booking).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "Booking not found or cannot be cancelled",
+		})
+	}
+	booking.Status = "cancelled"
+	if err := bc.DB.Save(&booking).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to cancel booking",
+		})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message": "Booking cancelled successfully",
+	})
+}

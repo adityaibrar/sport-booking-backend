@@ -21,4 +21,5 @@ func SetupUserRoutes(version fiber.Router, db *gorm.DB) {
 
 	booking := user.Group("/booking")
 	booking.Post("/", bookingController.CreateBooking)
+	booking.Post("/cancel/:id", bookingController.CancelBooking)
 }
