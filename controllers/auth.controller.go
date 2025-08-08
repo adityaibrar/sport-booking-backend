@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"fmt"
 	"sport-booking-backend/models"
 	"sport-booking-backend/utils"
 
@@ -18,16 +19,23 @@ func NewAuthController(db *gorm.DB) *AuthController {
 
 func (ac *AuthController) Register(c *fiber.Ctx) error {
 	var input models.RegisterRequest
+	fmt.Printf("Registering user: %+v\n", input)
 	if err := c.BodyParser(&input); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "Invalid input",
 		})
 	}
 
-	var existingUser models.User
-	if err := ac.DB.Where("email = ?", input.Email).First(&existingUser).Error; err == nil {
+	var count int64
+	if err := ac.DB.Model(&models.User{}).Where("email = ?", input.Email).Count(&count).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to check existing user",
+		})
+	}
+
+	if count > 0 {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Email already exist",
+			"error": "Email already exists",
 		})
 	}
 
@@ -52,9 +60,17 @@ func (ac *AuthController) Register(c *fiber.Ctx) error {
 		})
 	}
 
+	userResponse := fiber.Map{
+		"user_id": user.ID,
+		"name":    user.Name,
+		"email":   user.Email,
+		"phone":   user.Phone,
+		"address": user.Address,
+	}
+
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
-		"message":   "User successfull create",
-		"user_data": user,
+		"message":   "User successfully created",
+		"user_data": userResponse,
 	})
 }
 

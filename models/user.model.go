@@ -7,7 +7,7 @@ type User struct {
 	Name     string    `gorm:"not null" json:"name"`
 	Email    string    `gorm:"unique;not null" json:"email"`
 	Password string    `gorm:"not null" json:"-"`
-	Phone    int32     `json:"phone"`
+	Phone    int64     `json:"phone"`
 	Address  string    `json:"address"`
 	Role     string    `gorm:"default:user" json:"role"`
 	Bookings []Booking `gorm:"foreignKey:UserID" json:"bookings,omitempty"` // Add relationship
@@ -17,7 +17,7 @@ type RegisterRequest struct {
 	Name     string `json:"name"`
 	Email    string `json:"email"`
 	Password string `json:"password"`
-	Phone    int32  `json:"phone"`
+	Phone    int64  `json:"phone"`
 	Address  string `json:"address"`
 }
 
