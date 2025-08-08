@@ -141,18 +141,29 @@ func (vc *VenueController) CheckAvailability(c *fiber.Ctx) error {
 		})
 	}
 
-	// Parse requested start and end times (just time, not full datetime)
-	requestedStartTime := request.StartTime // e.g., "19:00"
+	// Parse request date and time
+	requestDate, err := time.Parse("2006-01-02", request.Date)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid date format. Use YYYY-MM-DD format",
+		})
+	}
 
-	// Parse the time to calculate end time
 	startTime, err := time.Parse("15:04", request.StartTime)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "Invalid time format. Use HH:MM format",
 		})
 	}
-	endTime := startTime.Add(time.Duration(request.Duration) * time.Hour)
-	requestedEndTime := endTime.Format("15:04") // e.g., "21:00"
+
+	// Combine date and time to create full datetime
+	requestedStartDateTime := time.Date(
+		requestDate.Year(), requestDate.Month(), requestDate.Day(),
+		startTime.Hour(), startTime.Minute(), 0, 0, time.Local,
+	)
+	requestedEndDateTime := requestedStartDateTime.Add(time.Duration(request.Duration) * time.Hour)
+
+	fmt.Printf("Checking availability from %v to %v\n", requestedStartDateTime, requestedEndDateTime)
 
 	// Get all venues based on category filter
 	var venues []models.Venue
@@ -172,15 +183,13 @@ func (vc *VenueController) CheckAvailability(c *fiber.Ctx) error {
 	for _, venue := range venues {
 		var count int64
 
-		// Check for time overlap with existing bookings
-		// Two time ranges (A and B) overlap if: A.start < B.end AND B.start < A.end
-		// For our case: requested.start < existing.end AND existing.start < requested.end
+		// Check for time overlap with existing bookings on the same date
+		// Two time ranges overlap if: start1 < end2 AND start2 < end1
 		err := vc.DB.Model(&models.Booking{}).
 			Where("venue_id = ? AND status IN (?, ?)", venue.ID, "pending", "confirmed").
-			Where(`
-				? < ADDTIME(start_time, SEC_TO_TIME(duration * 3600)) AND 
-				start_time < ?
-			`, requestedStartTime, requestedEndTime).
+			Where("DATE(start_time) = ?", requestDate.Format("2006-01-02")).
+			Where("start_time < ? AND DATE_ADD(start_time, INTERVAL duration HOUR) > ?",
+				requestedEndDateTime, requestedStartDateTime).
 			Count(&count).Error
 
 		if err != nil {
@@ -197,9 +206,10 @@ func (vc *VenueController) CheckAvailability(c *fiber.Ctx) error {
 	}
 
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"message": "Available venues retrieved successfully",
-		"data":    availableVenues,
-		"total":   len(availableVenues),
+		"status":      true,
+		"message":     "Available venues retrieved successfully",
+		"data_venues": availableVenues,
+		"total":       len(availableVenues),
 	})
 }
 
