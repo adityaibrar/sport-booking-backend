@@ -11,6 +11,7 @@ import (
 func SetupAdminRoutes(version fiber.Router, db *gorm.DB) {
 	adminController := controllers.NewAdminController(db)
 	venueController := controllers.NewVenueController(db)
+	bookingController := controllers.NewBookingController(db)
 
 	admin := version.Group("/admin", utils.AuthMiddleware, utils.CheckRole)
 	dashboard := admin.Group("/dashboard")
@@ -22,4 +23,8 @@ func SetupAdminRoutes(version fiber.Router, db *gorm.DB) {
 	venue.Get("/", venueController.GetListVenue)
 	venue.Get("/:id", venueController.GetDetailVenue)
 	venue.Delete("/:id", venueController.DeleteVenue)
+
+	booking := admin.Group("/booking")
+	booking.Put("/:id", bookingController.UpdateBookingStatus)
+	booking.Get("/", bookingController.GetUserBookings)
 }

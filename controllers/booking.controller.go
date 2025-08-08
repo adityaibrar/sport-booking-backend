@@ -130,3 +130,83 @@ func (bc *BookingController) CreateBooking(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusCreated).JSON(response)
 
 }
+
+func (bc *BookingController) UpdateBookingStatus(c *fiber.Ctx) error {
+	idVenue := c.Params("id")
+	var booking models.Booking
+	if err := bc.DB.Where("id = ? AND status = ?", idVenue, "pending").First(&booking).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "Booking not found or already confirmed",
+		})
+	}
+
+	booking.Status = "confirmed"
+	if err := bc.DB.Save(&booking).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to confirm booking",
+		})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message": "Booking confirmed successfully",
+	})
+}
+
+func (bc *BookingController) GetUserBookings(c *fiber.Ctx) error {
+	// Get search parameter from query
+	searchName := c.Query("name", "")
+
+	var bookings []models.Booking
+	query := bc.DB.Preload("User").Preload("Venue")
+
+	// Filter by user name if provided
+	if searchName != "" {
+		query = query.Joins("JOIN users ON users.id = bookings.user_id").
+			Where("users.name LIKE ?", "%"+searchName+"%")
+	}
+
+	// Order by creation date (newest first)
+	if err := query.Order("bookings.created_at DESC").Find(&bookings).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to fetch bookings",
+			"debug": err.Error(),
+		})
+	}
+
+	// Transform to response format
+	var bookingResponses []models.BookingResponse
+	for _, booking := range bookings {
+		response := models.BookingResponse{
+			ID:          booking.ID,
+			StartTime:   booking.StartTime,
+			Duration:    booking.Duration,
+			TotalPrice:  booking.TotalPrice,
+			Status:      booking.Status,
+			PaymentQRIS: booking.PaymentQRIS,
+			CreatedAt:   booking.CreatedAt.Format("2006-01-02 15:04:05"),
+		}
+
+		// User data
+		response.User.ID = booking.User.ID
+		response.User.Name = booking.User.Name
+		response.User.Email = booking.User.Email
+
+		// Venue data
+		response.Venue.ID = booking.Venue.ID
+		response.Venue.Name = booking.Venue.Name
+		response.Venue.Category = booking.Venue.Category
+		response.Venue.PricePerHour = booking.Venue.PricePerHour
+		response.Venue.Description = booking.Venue.Description
+
+		bookingResponses = append(bookingResponses, response)
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message":      "Bookings retrieved successfully",
+		"data_booking": bookingResponses,
+		"total":        len(bookingResponses),
+		"filter": fiber.Map{
+			"name": searchName,
+		},
+	})
+}

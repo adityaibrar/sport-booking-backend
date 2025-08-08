@@ -31,3 +31,26 @@ type BookingSearch struct {
 	Duration  int    `json:"duration"`
 	Category  string `json:"category"`
 }
+
+type BookingResponse struct {
+	ID          uint    `json:"id"`
+	StartTime   string  `json:"start_time"`
+	Duration    int     `json:"duration"`
+	TotalPrice  float64 `json:"total_price"`
+	Status      string  `json:"status"`
+	PaymentQRIS string  `json:"payment_qris,omitempty"`
+	CreatedAt   string  `json:"created_at"`
+	User        struct {
+		ID    uint   `json:"id"`
+		Name  string `json:"name"`
+		Email string `json:"email"`
+		Phone string `json:"phone"`
+	} `json:"user"`
+	Venue struct {
+		ID           uint    `json:"id"`
+		Name         string  `json:"name"`
+		Category     string  `json:"category"`
+		PricePerHour float64 `json:"price_per_hour"`
+		Description  string  `json:"description"`
+	} `json:"venue"`
+}
