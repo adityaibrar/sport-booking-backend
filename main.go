@@ -25,7 +25,7 @@ func main() {
 		log.Fatal("Failed to connect to database", err)
 	}
 
-	if err := config.Migrate(db); err != nil {
+	if err := config.ResetAndMigrate(db); err != nil {
 		log.Fatal("Failed to run migrations:", err)
 	}
 
