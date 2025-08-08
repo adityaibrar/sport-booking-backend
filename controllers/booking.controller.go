@@ -230,3 +230,50 @@ func (bc *BookingController) CancelBooking(c *fiber.Ctx) error {
 		"message": "Booking cancelled successfully",
 	})
 }
+
+func (bc *BookingController) HistoryBookingUser(c *fiber.Ctx) error {
+	userId := c.Params("id")
+	var bookings []models.Booking
+	// preload untuk mengambil data user dan venue
+	if err := bc.DB.Preload("User").Preload("Venue").
+		Where("user_id = ?", userId).
+		Order("created_at DESC").
+		Find(&bookings).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to fetch booking history",
+			"debug": err.Error(),
+		})
+	}
+
+	var bookingResponses []models.BookingResponse
+	for _, booking := range bookings {
+		response := models.BookingResponse{
+			ID:          booking.ID,
+			StartTime:   booking.StartTime,
+			Duration:    booking.Duration,
+			TotalPrice:  booking.TotalPrice,
+			Status:      booking.Status,
+			PaymentQRIS: booking.PaymentQRIS,
+			CreatedAt:   booking.CreatedAt.Format("2006-01-02 15:04:05"),
+		}
+
+		response.User.ID = booking.User.ID
+		response.User.Name = booking.User.Name
+		response.User.Email = booking.User.Email
+		response.User.Phone = fmt.Sprintf("%d", booking.User.Phone)
+
+		response.Venue.ID = booking.Venue.ID
+		response.Venue.Name = booking.Venue.Name
+		response.Venue.Category = booking.Venue.Category
+		response.Venue.PricePerHour = booking.Venue.PricePerHour
+		response.Venue.Description = booking.Venue.Description
+
+		bookingResponses = append(bookingResponses, response)
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message":      "Booking history retrieved successfully",
+		"data_booking": bookingResponses,
+		"total":        len(bookingResponses),
+	})
+}
