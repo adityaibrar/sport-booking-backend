@@ -1,29 +1,35 @@
 package controllers
 
 import (
-	"fmt"
 	"sport-booking-backend/models"
+	"sport-booking-backend/utils"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 )
 
+// VenueController handles all venue-related HTTP requests
 type VenueController struct {
 	DB *gorm.DB
 }
 
+// NewVenueController creates a new venue controller instance
 func NewVenueController(db *gorm.DB) *VenueController {
 	return &VenueController{DB: db}
 }
 
+// CreateVenue creates a new venue (admin only)
 func (vc *VenueController) CreateVenue(c *fiber.Ctx) error {
 	var request models.VenueRequest
 
 	if err := c.BodyParser(&request); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "invalid input",
-		})
+		return utils.HandleError(c, err, "Invalid request body")
+	}
+
+	// Validate request
+	if err := utils.ValidateStruct(&request); err != nil {
+		return utils.HandleValidationErrors(c, err)
 	}
 
 	venue := models.Venue{
@@ -31,129 +37,212 @@ func (vc *VenueController) CreateVenue(c *fiber.Ctx) error {
 		Category:     request.Category,
 		PricePerHour: request.PricePerHour,
 		Description:  request.Description,
+		Location:     request.Location,
+		OpenTime:     request.OpenTime,
+		CloseTime:    request.CloseTime,
+		Capacity:     request.Capacity,
+		IsActive:     true,
 	}
 
 	if err := vc.DB.Create(&venue).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to create venue",
-		})
+		return utils.HandleError(c, err, "Failed to create venue")
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
-		"message":    "Successfully create venue",
-		"data_venue": venue,
-	})
+	response := venue.ToResponse()
+	return utils.SuccessResponse(c, "Venue created successfully", response)
 }
 
-func (vc *VenueController) UpdateVenue(c *fiber.Ctx) error {
-	id := c.Params("id")
+// GetListVenue retrieves all venues with optional filters
+func (vc *VenueController) GetListVenue(c *fiber.Ctx) error {
+	var searchParams models.VenueSearchRequest
+
+	// Parse query parameters
+	if err := c.QueryParser(&searchParams); err != nil {
+		return utils.HandleError(c, err, "Invalid query parameters")
+	}
+
+	// Set defaults
+	if searchParams.Page <= 0 {
+		searchParams.Page = 1
+	}
+	if searchParams.Limit <= 0 {
+		searchParams.Limit = 10
+	}
+	if searchParams.Limit > 100 {
+		searchParams.Limit = 100
+	}
+	if searchParams.SortBy == "" {
+		searchParams.SortBy = "created_at"
+	}
+	if searchParams.SortOrder == "" {
+		searchParams.SortOrder = "desc"
+	}
+
+	// Build query
+	query := vc.DB.Model(&models.Venue{})
+
+	// Apply filters
+	if searchParams.Name != "" {
+		query = query.Where("name LIKE ?", "%"+searchParams.Name+"%")
+	}
+
+	if searchParams.Category != "" {
+		query = query.Where("category = ?", searchParams.Category)
+	}
+
+	if searchParams.Location != "" {
+		query = query.Where("location LIKE ?", "%"+searchParams.Location+"%")
+	}
+
+	if searchParams.MinPrice > 0 {
+		query = query.Where("price_per_hour >= ?", searchParams.MinPrice)
+	}
+
+	if searchParams.MaxPrice > 0 {
+		query = query.Where("price_per_hour <= ?", searchParams.MaxPrice)
+	}
+
+	if searchParams.IsActive != nil {
+		query = query.Where("is_active = ?", *searchParams.IsActive)
+	}
+
+	// Count total records
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return utils.HandleError(c, err, "Failed to count venues")
+	}
+
+	// Apply pagination and sorting
+	offset := (searchParams.Page - 1) * searchParams.Limit
+	orderClause := searchParams.SortBy + " " + searchParams.SortOrder
+
+	var venues []models.Venue
+	if err := query.Order(orderClause).Offset(offset).Limit(searchParams.Limit).Find(&venues).Error; err != nil {
+		return utils.HandleError(c, err, "Failed to fetch venues")
+	}
+
+	// Convert to response format
+	var venueResponses []models.VenueResponse
+	for _, venue := range venues {
+		venueResponses = append(venueResponses, venue.ToResponse())
+	}
+
+	// Create pagination metadata
+	pagination := models.NewPaginationMeta(searchParams.Page, searchParams.Limit, total)
+
+	return utils.SuccessResponseWithPagination(c, "Venues retrieved successfully", venueResponses, pagination)
+}
+
+// GetDetailVenue retrieves a specific venue by ID
+func (vc *VenueController) GetDetailVenue(c *fiber.Ctx) error {
+	venueID := c.Params("id")
+
 	var venue models.Venue
-
-	if err := vc.DB.First(&venue, id).Error; err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Venue not found",
-		})
+	if err := vc.DB.First(&venue, venueID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return utils.HandleError(c, fiber.NewError(fiber.StatusNotFound, "Venue not found"), "")
+		}
+		return utils.HandleError(c, err, "Failed to fetch venue")
 	}
 
-	var updateVenue models.VenueRequest
+	response := venue.ToResponse()
+	return utils.SuccessResponse(c, "Venue retrieved successfully", response)
+}
 
-	if err := c.BodyParser(&updateVenue); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "invalid input",
-		})
+// UpdateVenue updates an existing venue (admin only)
+func (vc *VenueController) UpdateVenue(c *fiber.Ctx) error {
+	venueID := c.Params("id")
+
+	var request models.VenueRequest
+	if err := c.BodyParser(&request); err != nil {
+		return utils.HandleError(c, err, "Invalid request body")
 	}
 
-	venue.Name = updateVenue.Name
-	venue.Category = updateVenue.Category
-	venue.PricePerHour = updateVenue.PricePerHour
-	venue.Description = updateVenue.Description
+	// Validate request
+	if err := utils.ValidateStruct(&request); err != nil {
+		return utils.HandleValidationErrors(c, err)
+	}
+
+	var venue models.Venue
+	if err := vc.DB.First(&venue, venueID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return utils.HandleError(c, fiber.NewError(fiber.StatusNotFound, "Venue not found"), "")
+		}
+		return utils.HandleError(c, err, "Failed to fetch venue")
+	}
+
+	// Update venue fields
+	venue.Name = request.Name
+	venue.Category = request.Category
+	venue.PricePerHour = request.PricePerHour
+	venue.Description = request.Description
+	venue.Location = request.Location
+	venue.OpenTime = request.OpenTime
+	venue.CloseTime = request.CloseTime
+	venue.Capacity = request.Capacity
 
 	if err := vc.DB.Save(&venue).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to update a venue",
-		})
+		return utils.HandleError(c, err, "Failed to update venue")
 	}
 
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"message":    "Successfully update a venue",
-		"data_venue": venue,
-	})
+	response := venue.ToResponse()
+	return utils.SuccessResponse(c, "Venue updated successfully", response)
 }
 
-func (vc *VenueController) GetListVenue(c *fiber.Ctx) error {
-	var venues []models.Venue
-
-	if err := vc.DB.Find(&venues).Error; err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Failed to get venues",
-		})
-	}
-
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"message":     "Successfuly get list venue",
-		"data_venues": venues,
-	})
-}
-
-func (vc *VenueController) GetDetailVenue(c *fiber.Ctx) error {
-	id := c.Params("id")
-	var venue models.Venue
-
-	if err := vc.DB.Find(&venue, id).Error; err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Venue not found",
-		})
-	}
-
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"message":    "Succesfully get venue",
-		"data_venue": venue,
-	})
-}
-
+// DeleteVenue deletes a venue (admin only)
 func (vc *VenueController) DeleteVenue(c *fiber.Ctx) error {
-	id := c.Params("id")
+	venueID := c.Params("id")
+
 	var venue models.Venue
-
-	if err := vc.DB.First(&venue, id).Error; err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": "Venue not found",
-		})
+	if err := vc.DB.First(&venue, venueID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return utils.HandleError(c, fiber.NewError(fiber.StatusNotFound, "Venue not found"), "")
+		}
+		return utils.HandleError(c, err, "Failed to fetch venue")
 	}
 
+	// Check if venue has active bookings
+	var activeBookings int64
+	if err := vc.DB.Model(&models.Booking{}).
+		Where("venue_id = ? AND status IN ?", venueID, []string{"pending", "confirmed"}).
+		Count(&activeBookings).Error; err != nil {
+		return utils.HandleError(c, err, "Failed to check venue bookings")
+	}
+
+	if activeBookings > 0 {
+		return utils.HandleError(c, fiber.NewError(fiber.StatusBadRequest, "Cannot delete venue with active bookings"), "")
+	}
+
+	// Soft delete the venue
 	if err := vc.DB.Delete(&venue).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed delete venue",
-		})
+		return utils.HandleError(c, err, "Failed to delete venue")
 	}
 
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"message": "Venue successfuly deleted",
-	})
+	return utils.SuccessResponse(c, "Venue deleted successfully", nil)
 }
 
+// CheckAvailability checks if a venue is available for booking
 func (vc *VenueController) CheckAvailability(c *fiber.Ctx) error {
-	var request models.BookingSearch
+	var request models.BookingAvailabilityRequest
 
 	if err := c.BodyParser(&request); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid input",
-		})
+		return utils.HandleError(c, err, "Invalid request body")
+	}
+
+	// Validate request
+	if err := utils.ValidateStruct(&request); err != nil {
+		return utils.HandleValidationErrors(c, err)
 	}
 
 	// Parse request date and time
 	requestDate, err := time.Parse("2006-01-02", request.Date)
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid date format. Use YYYY-MM-DD format",
-		})
+		return utils.HandleError(c, fiber.NewError(fiber.StatusBadRequest, "Invalid date format. Use YYYY-MM-DD format"), "")
 	}
 
 	startTime, err := time.Parse("15:04", request.StartTime)
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid time format. Use HH:MM format",
-		})
+		return utils.HandleError(c, fiber.NewError(fiber.StatusBadRequest, "Invalid time format. Use HH:MM format"), "")
 	}
 
 	// Combine date and time to create full datetime
@@ -163,224 +252,48 @@ func (vc *VenueController) CheckAvailability(c *fiber.Ctx) error {
 	)
 	requestedEndDateTime := requestedStartDateTime.Add(time.Duration(request.Duration) * time.Hour)
 
-	fmt.Printf("Checking availability from %v to %v\n", requestedStartDateTime, requestedEndDateTime)
-
-	// Get all venues based on category filter
-	var venues []models.Venue
-	query := vc.DB
-	if request.Category != "" {
-		query = query.Where("category = ?", request.Category)
+	// Get the specific venue
+	var venue models.Venue
+	if err := vc.DB.Where("id = ? AND is_active = ?", request.VenueID, true).First(&venue).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return utils.HandleError(c, fiber.NewError(fiber.StatusNotFound, "Venue not found or inactive"), "")
+		}
+		return utils.HandleError(c, err, "Failed to fetch venue")
 	}
-	if err := query.Find(&venues).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to get venues",
+
+	// Check if venue is open during requested time
+	if !venue.IsOpenAt(request.StartTime) {
+		return utils.SuccessResponse(c, "Availability check completed", models.VenueAvailabilityResponse{
+			VenueID:     venue.ID,
+			Date:        request.Date,
+			IsAvailable: false,
 		})
 	}
 
-	// Check availability for each venue
-	availableVenues := make([]models.Venue, 0)
+	// Check for time overlap with existing bookings
+	var count int64
+	err = vc.DB.Model(&models.Booking{}).
+		Where("venue_id = ? AND status IN ?", venue.ID, []string{"pending", "confirmed"}).
+		Where("start_time < ? AND DATE_ADD(start_time, INTERVAL duration HOUR) > ?",
+			requestedEndDateTime, requestedStartDateTime).
+		Count(&count).Error
 
-	for _, venue := range venues {
-		var count int64
-
-		// Check for time overlap with existing bookings on the same date
-		// Two time ranges overlap if: start1 < end2 AND start2 < end1
-		err := vc.DB.Model(&models.Booking{}).
-			Where("venue_id = ? AND status IN (?, ?)", venue.ID, "pending", "confirmed").
-			Where("DATE(start_time) = ?", requestDate.Format("2006-01-02")).
-			Where("start_time < ? AND DATE_ADD(start_time, INTERVAL duration HOUR) > ?",
-				requestedEndDateTime, requestedStartDateTime).
-			Count(&count).Error
-
-		if err != nil {
-			fmt.Printf("Error checking availability for venue %d: %v\n", venue.ID, err)
-			continue
-		}
-
-		fmt.Printf("Venue %d (%s): Found %d conflicting bookings\n", venue.ID, venue.Name, count)
-
-		// If no overlapping bookings found, venue is available
-		if count == 0 {
-			availableVenues = append(availableVenues, venue)
-		}
-	}
-
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"status":      true,
-		"message":     "Available venues retrieved successfully",
-		"data_venues": availableVenues,
-		"total":       len(availableVenues),
-	})
-}
-
-func (vc *VenueController) GetAllVenues(c *fiber.Ctx) error {
-	// Get category from query parameter (optional)
-	category := c.Query("category")
-
-	// Get all venues with their bookings (preload bookings)
-	var venues []models.Venue
-	query := vc.DB.Preload("Bookings", func(db *gorm.DB) *gorm.DB {
-		return db.Where("status IN (?)", []string{"pending", "confirmed", "completed"}).
-			Order("start_time ASC")
-	})
-
-	if category != "" {
-		query = query.Where("category = ?", category)
-	}
-
-	if err := query.Find(&venues).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to get venues",
-		})
-	}
-
-	type BookingDetail struct {
-		ID          uint    `json:"id"`
-		UserID      uint    `json:"user_id"`
-		StartTime   string  `json:"start_time"`
-		Duration    int     `json:"duration"`
-		EndTime     string  `json:"end_time"`
-		TotalPrice  float64 `json:"total_price"`
-		Status      string  `json:"status"`
-		PaymentQRIS string  `json:"payment_qris,omitempty"`
-	}
-
-	type VenueWithStatus struct {
-		ID              uint            `json:"id"`
-		Name            string          `json:"name"`
-		Category        string          `json:"category"`
-		PricePerHour    float64         `json:"price_per_hour"`
-		Description     string          `json:"description"`
-		TotalBookings   int             `json:"total_bookings"`
-		ActiveBookings  int             `json:"active_bookings"`
-		BookingDetails  []BookingDetail `json:"booking_details,omitempty"`
-		IsCurrentlyBusy bool            `json:"is_currently_busy"`
-		CreatedAt       interface{}     `json:"created_at"`
-		UpdatedAt       interface{}     `json:"updated_at"`
-	}
-
-	venuesWithStatus := make([]VenueWithStatus, 0, len(venues))
-	currentTime := time.Now().Format("15:04")
-
-	for _, venue := range venues {
-		activeBookings := 0
-		isCurrentlyBusy := false
-		bookingDetails := make([]BookingDetail, 0)
-
-		for _, booking := range venue.Bookings {
-			if booking.Status == "pending" || booking.Status == "confirmed" {
-				activeBookings++
-			}
-			if booking.Status == "confirmed" || booking.Status == "pending" {
-				startTime, err := time.Parse("15:04", booking.StartTime)
-				if err == nil {
-					endTime := startTime.Add(time.Duration(booking.Duration) * time.Hour)
-					currentTimeParsed, err := time.Parse("15:04", currentTime)
-					if err == nil {
-						if (currentTimeParsed.After(startTime) || currentTimeParsed.Equal(startTime)) &&
-							currentTimeParsed.Before(endTime) {
-							isCurrentlyBusy = true
-						}
-					}
-				}
-			}
-			endTime := ""
-			if startTime, err := time.Parse("15:04", booking.StartTime); err == nil {
-				endTime = startTime.Add(time.Duration(booking.Duration) * time.Hour).Format("15:04")
-			}
-			bookingDetails = append(bookingDetails, BookingDetail{
-				ID:          booking.ID,
-				UserID:      booking.UserID,
-				StartTime:   booking.StartTime,
-				Duration:    booking.Duration,
-				EndTime:     endTime,
-				TotalPrice:  booking.TotalPrice,
-				Status:      booking.Status,
-				PaymentQRIS: booking.PaymentQRIS,
-			})
-		}
-
-		venueWithStatus := VenueWithStatus{
-			ID:              venue.ID,
-			Name:            venue.Name,
-			Category:        venue.Category,
-			PricePerHour:    venue.PricePerHour,
-			Description:     venue.Description,
-			TotalBookings:   len(venue.Bookings),
-			ActiveBookings:  activeBookings,
-			BookingDetails:  bookingDetails,
-			IsCurrentlyBusy: isCurrentlyBusy,
-			CreatedAt:       venue.CreatedAt,
-			UpdatedAt:       venue.UpdatedAt,
-		}
-		venuesWithStatus = append(venuesWithStatus, venueWithStatus)
-	}
-
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"message": "Venues retrieved successfully",
-		"data":    venuesWithStatus,
-		"total":   len(venuesWithStatus),
-		"filter": map[string]interface{}{
-			"category": category,
-		},
-	})
-}
-
-func (vc *VenueController) GetAvailableVenues(c *fiber.Ctx) error {
-	var request models.BookingSearch
-
-	if err := c.BodyParser(&request); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid input",
-		})
-	}
-
-	// Parse requested start and end times (just time, not full datetime)
-	requestedStartTime := request.StartTime // e.g., "19:00"
-
-	// Parse the time to calculate end time
-	startTime, err := time.Parse("15:04", request.StartTime)
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid time format. Use HH:MM format",
-		})
-	}
-	endTime := startTime.Add(time.Duration(request.Duration) * time.Hour)
-	requestedEndTime := endTime.Format("15:04") // e.g., "21:00"
-
-	var venues []models.Venue
-	if err := vc.DB.Find(&venues).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to get venues",
-		})
+		return utils.HandleError(c, err, "Failed to check availability")
 	}
 
-	availableVenues := make([]models.Venue, 0)
+	isAvailable := count == 0
 
-	for _, venue := range venues {
-		var count int64
-
-		err := vc.DB.Model(&models.Booking{}).
-			Where("venue_id = ? AND status IN (?, ?)", venue.ID, "pending", "confirmed").
-			Where(`
-				? < ADDTIME(start_time, SEC_TO_TIME(duration * 3600)) AND 
-				start_time < ?
-			`, requestedStartTime, requestedEndTime).
-			Count(&count).Error
-
-		if err != nil {
-			fmt.Printf("Error checking availability for venue %d: %v\n", venue.ID, err)
-			continue
-		}
-
-		if count == 0 {
-			availableVenues = append(availableVenues, venue)
-		}
+	availabilityResponse := models.VenueAvailabilityResponse{
+		VenueID:     venue.ID,
+		Date:        request.Date,
+		IsAvailable: isAvailable,
 	}
 
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"message": "Available venues retrieved successfully",
-		"data":    availableVenues,
-		"total":   len(availableVenues),
-	})
+	// Generate available slots if requested
+	if isAvailable {
+		availabilityResponse.AvailableSlots = venue.GetOperatingHours()
+	}
+
+	return utils.SuccessResponse(c, "Availability check completed", availabilityResponse)
 }
