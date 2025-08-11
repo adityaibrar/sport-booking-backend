@@ -27,6 +27,7 @@ type User struct {
 
 	// Associations
 	Bookings []Booking `gorm:"foreignKey:UserID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"bookings,omitempty"`
+	Reviews  []Review  `gorm:"foreignKey:UserID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"reviews,omitempty"`
 }
 
 // RegisterRequest represents the request payload for user registration
