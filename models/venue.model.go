@@ -37,6 +37,7 @@ type Venue struct {
 
 	// Associations
 	Bookings []Booking `gorm:"foreignKey:VenueID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"bookings,omitempty"`
+	Reviews  []Review  `gorm:"foreignKey:VenueID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"reviews,omitempty"`
 }
 
 // VenueRequest represents the request payload for creating/updating a venue

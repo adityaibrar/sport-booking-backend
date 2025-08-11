@@ -12,6 +12,7 @@ import (
 func SetupUserRoutes(version fiber.Router, db *gorm.DB) {
 	bookingController := controllers.NewBookingController(db)
 	venueController := controllers.NewVenueController(db)
+	reviewController := controllers.NewReviewController(db)
 
 	// User routes group with authentication middleware
 	user := version.Group("/user", utils.AuthMiddleware)
@@ -27,6 +28,12 @@ func SetupUserRoutes(version fiber.Router, db *gorm.DB) {
 	bookings.Post("/", bookingController.CreateBooking)                // POST /api/v1/user/bookings
 	bookings.Get("/history/:id", bookingController.HistoryBookingUser) // GET /api/v1/user/bookings/history/:id
 	bookings.Post("/:id/cancel", bookingController.CancelBooking)      // POST /api/v1/user/bookings/:id/cancel
+
+	// Review routes for users
+	reviews := user.Group("/reviews")
+	reviews.Post("/", reviewController.CreateReview) // POST /api/v1/user/reviews
+	// reviews.Get("/history/:id", reviewController.HistoryReviewUser)    // GET /api/v1/user/reviews/history/:id
+	reviews.Get("/", reviewController.GetReview) // GET /api/v1/user/reviews
 
 	// Profile routes (if needed in the future)
 	// profile := user.Group("/profile")
