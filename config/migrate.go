@@ -3,6 +3,7 @@ package config
 import (
 	"log"
 	"sport-booking-backend/models"
+	"sport-booking-backend/seeders"
 
 	"gorm.io/gorm"
 )
@@ -12,6 +13,7 @@ func ResetAndMigrate(db *gorm.DB) error {
 		&models.User{},
 		&models.Venue{},
 		&models.Booking{},
+		&models.Review{},
 	}
 
 	if err := db.Migrator().DropTable(models...); err != nil {
@@ -24,6 +26,11 @@ func ResetAndMigrate(db *gorm.DB) error {
 		return err
 	}
 
+	log.Println("Running seeders...")
+	if err := seeders.SeedAdminUser(db); err != nil {
+		return err
+	}
+
 	log.Println("Database reset and migration completed successfully")
 	return nil
 }
@@ -33,6 +40,7 @@ func Migrate(db *gorm.DB) error {
 		&models.User{},
 		&models.Venue{},
 		&models.Booking{},
+		&models.Review{},
 	)
 
 	if err != nil {
