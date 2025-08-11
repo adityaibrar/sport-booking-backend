@@ -8,23 +8,37 @@ import (
 	"gorm.io/gorm"
 )
 
+// SetupAdminRoutes configures all admin-related routes
 func SetupAdminRoutes(version fiber.Router, db *gorm.DB) {
 	adminController := controllers.NewAdminController(db)
 	venueController := controllers.NewVenueController(db)
 	bookingController := controllers.NewBookingController(db)
 
+	// Admin routes group with authentication and role checking middleware
 	admin := version.Group("/admin", utils.AuthMiddleware, utils.CheckRole)
+
+	// Dashboard routes
 	dashboard := admin.Group("/dashboard")
-	dashboard.Get("/", adminController.GetDashboardAnalytics)
+	dashboard.Get("/", adminController.GetDashboardAnalytics)      // GET /api/v1/admin/dashboard
+	dashboard.Get("/stats", adminController.GetDashboardAnalytics) // GET /api/v1/admin/dashboard/stats
 
-	venue := admin.Group("/venue")
-	venue.Post("/", venueController.CreateVenue)
-	venue.Put("/:id", venueController.UpdateVenue)
-	venue.Get("/", venueController.GetListVenue)
-	venue.Get("/:id", venueController.GetDetailVenue)
-	venue.Delete("/:id", venueController.DeleteVenue)
+	// Venue management routes
+	venues := admin.Group("/venues")
+	venues.Post("/", venueController.CreateVenue)      // POST /api/v1/admin/venues
+	venues.Get("/", venueController.GetListVenue)      // GET /api/v1/admin/venues
+	venues.Get("/:id", venueController.GetDetailVenue) // GET /api/v1/admin/venues/:id
+	venues.Put("/:id", venueController.UpdateVenue)    // PUT /api/v1/admin/venues/:id
+	venues.Delete("/:id", venueController.DeleteVenue) // DELETE /api/v1/admin/venues/:id
 
-	booking := admin.Group("/booking")
-	booking.Put("/:id", bookingController.UpdateBookingStatus)
-	booking.Get("/", bookingController.GetUserBookings)
+	// Booking management routes
+	bookings := admin.Group("/bookings")
+	bookings.Get("/", bookingController.GetUserBookings)               // GET /api/v1/admin/bookings
+	bookings.Put("/:id/status", bookingController.UpdateBookingStatus) // PUT /api/v1/admin/bookings/:id/status
+	bookings.Get("/:id", bookingController.GetUserBookings)            // GET /api/v1/admin/bookings/:id (individual booking details)
+
+	// User management routes (if needed in the future)
+	// users := admin.Group("/users")
+	// users.Get("/", userController.GetAllUsers)
+	// users.Get("/:id", userController.GetUserDetails)
+	// users.Put("/:id/status", userController.UpdateUserStatus)
 }
