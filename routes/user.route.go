@@ -33,10 +33,8 @@ func SetupUserRoutes(version fiber.Router, db *gorm.DB) {
 	reviews := user.Group("/reviews")
 	reviews.Post("/", reviewController.CreateReview) // POST /api/v1/user/reviews
 	// reviews.Get("/history/:id", reviewController.HistoryReviewUser)    // GET /api/v1/user/reviews/history/:id
-	reviews.Get("/", reviewController.GetReview) // GET /api/v1/user/reviews
+	reviews.Get("/", reviewController.GetReview)          // GET /api/v1/user/reviews
+	reviews.Get("/:id", reviewController.GetReview)       // GET /api/v1/user/reviews/:id
+	reviews.Delete("/:id", reviewController.DeleteReview) // DELETE /api/v1/user/reviews/:id
 
-	// Profile routes (if needed in the future)
-	// profile := user.Group("/profile")
-	// profile.Get("/", userController.GetProfile)
-	// profile.Put("/", userController.UpdateProfile)
 }
