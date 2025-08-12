@@ -11,6 +11,8 @@ require (
 	gorm.io/gorm v1.30.1
 )
 
+require github.com/midtrans/midtrans-go v1.3.8
+
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/andybalholm/brotli v1.1.0 // indirect

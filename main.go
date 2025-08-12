@@ -98,8 +98,8 @@ func main() {
 	})
 
 	// Setup API routes
-	routes.SetupRoutes(app, db)
-
+	routes.SetupRoutes(app, db, &cfg.Midtrans.Client)
+	log.Printf("Midtrans Client: %+v", &cfg.Midtrans.Client)
 	// Setup error handler for 404
 	middleware.SetupErrorHandler(app)
 

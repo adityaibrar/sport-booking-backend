@@ -19,14 +19,14 @@ const (
 // Booking represents a sports venue booking in the system
 type Booking struct {
 	gorm.Model
-	UserID      uint          `gorm:"not null;index" json:"user_id" validate:"required"`
-	VenueID     uint          `gorm:"not null;index" json:"venue_id" validate:"required"`
-	StartTime   time.Time     `gorm:"not null;index" json:"start_time" validate:"required"`
-	Duration    int           `gorm:"not null" json:"duration" validate:"required,min=1,max=24"` // Duration in hours (1-24)
-	TotalPrice  float64       `gorm:"not null" json:"total_price" validate:"required,min=0"`
-	Status      BookingStatus `gorm:"not null;default:'pending';index" json:"status" validate:"required,oneof=pending confirmed completed cancelled"`
-	PaymentQRIS string        `gorm:"size:500" json:"payment_qris,omitempty"`
-	Notes       string        `gorm:"size:1000" json:"notes,omitempty"` // Additional booking notes
+	UserID     uint          `gorm:"not null;index" json:"user_id" validate:"required"`
+	VenueID    uint          `gorm:"not null;index" json:"venue_id" validate:"required"`
+	StartTime  time.Time     `gorm:"not null;index" json:"start_time" validate:"required"`
+	Duration   int           `gorm:"not null" json:"duration" validate:"required,min=1,max=24"` // Duration in hours (1-24)
+	TotalPrice float64       `gorm:"not null" json:"total_price" validate:"required,min=0"`
+	Status     BookingStatus `gorm:"not null;default:'pending';index" json:"status" validate:"required,oneof=pending confirmed completed cancelled"`
+	PaymentUrl string        `gorm:"size:500" json:"payment_url,omitempty"`
+	Notes      string        `gorm:"size:1000" json:"notes,omitempty"` // Additional booking notes
 
 	// Associations
 	User  User  `gorm:"foreignKey:UserID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"user,omitempty"`
@@ -72,18 +72,20 @@ type BookingAvailabilityRequest struct {
 
 // BookingResponse represents the response structure for booking data
 type BookingResponse struct {
-	ID          uint          `json:"id"`
-	StartTime   time.Time     `json:"start_time"`
-	EndTime     time.Time     `json:"end_time"`
-	Duration    int           `json:"duration"`
-	TotalPrice  float64       `json:"total_price"`
-	Status      string        `json:"status"`
-	PaymentQRIS string        `json:"payment_qris,omitempty"`
-	Notes       string        `json:"notes,omitempty"`
-	CreatedAt   time.Time     `json:"created_at"`
-	UpdatedAt   time.Time     `json:"updated_at"`
-	User        UserResponse  `json:"user"`
-	Venue       VenueResponse `json:"venue"`
+	ID                  uint          `json:"id"`
+	StartTime           time.Time     `json:"start_time"`
+	EndTime             time.Time     `json:"end_time"`
+	Duration            int           `json:"duration"`
+	TotalPrice          float64       `json:"total_price"`
+	Status              string        `json:"status"`
+	PaymentUrl          string        `json:"payment_url,omitempty"`
+	MidtransToken       string        `json:"midtrans_token,omitempty"`        // Token from Midtrans
+	MidtransRedirectURL string        `json:"midtrans_redirect_url,omitempty"` // Redirect URL from Midtrans
+	Notes               string        `json:"notes,omitempty"`
+	CreatedAt           time.Time     `json:"created_at"`
+	UpdatedAt           time.Time     `json:"updated_at"`
+	User                UserResponse  `json:"user"`
+	Venue               VenueResponse `json:"venue"`
 }
 
 // BookingListResponse represents paginated booking list response
@@ -123,18 +125,26 @@ func (b *Booking) CanBeCancelled() bool {
 }
 
 // ToResponse converts Booking model to BookingResponse
-func (b *Booking) ToResponse() BookingResponse {
+func (b *Booking) ToResponse(midtransToken string, midtransRedirectURL string) BookingResponse {
 	response := BookingResponse{
-		ID:          b.ID,
-		StartTime:   b.StartTime,
-		EndTime:     b.GetEndTime(),
-		Duration:    b.Duration,
-		TotalPrice:  b.TotalPrice,
-		Status:      string(b.Status),
-		PaymentQRIS: b.PaymentQRIS,
-		Notes:       b.Notes,
-		CreatedAt:   b.CreatedAt,
-		UpdatedAt:   b.UpdatedAt,
+		ID:         b.ID,
+		StartTime:  b.StartTime,
+		EndTime:    b.GetEndTime(),
+		Duration:   b.Duration,
+		TotalPrice: b.TotalPrice,
+		Status:     string(b.Status),
+		PaymentUrl: b.PaymentUrl,
+		Notes:      b.Notes,
+		CreatedAt:  b.CreatedAt,
+		UpdatedAt:  b.UpdatedAt,
+	}
+
+	// Add Midtrans token and redirect URL if provided
+	if midtransToken != "" {
+		response.MidtransToken = midtransToken
+	}
+	if midtransRedirectURL != "" {
+		response.MidtransRedirectURL = midtransRedirectURL
 	}
 
 	// Convert user data if loaded

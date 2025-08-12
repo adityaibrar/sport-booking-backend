@@ -5,14 +5,15 @@ import (
 	"sport-booking-backend/utils"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/midtrans/midtrans-go/snap"
 	"gorm.io/gorm"
 )
 
 // SetupAdminRoutes configures all admin-related routes
-func SetupAdminRoutes(version fiber.Router, db *gorm.DB) {
+func SetupAdminRoutes(version fiber.Router, db *gorm.DB, client *snap.Client) {
 	adminController := controllers.NewAdminController(db)
 	venueController := controllers.NewVenueController(db)
-	bookingController := controllers.NewBookingController(db)
+	bookingController := controllers.NewBookingController(db, client)
 
 	// Admin routes group with authentication and role checking middleware
 	admin := version.Group("/admin", utils.AuthMiddleware, utils.CheckRole)

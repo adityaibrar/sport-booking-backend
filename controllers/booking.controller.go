@@ -2,22 +2,28 @@ package controllers
 
 import (
 	"errors"
+	"fmt"
+	"log"
 	"sport-booking-backend/models"
 	"sport-booking-backend/utils"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/midtrans/midtrans-go"
+
+	"github.com/midtrans/midtrans-go/snap"
 	"gorm.io/gorm"
 )
 
 // BookingController handles all booking-related HTTP requests
 type BookingController struct {
-	DB *gorm.DB
+	DB     *gorm.DB
+	Client *snap.Client
 }
 
 // NewBookingController creates a new booking controller instance
-func NewBookingController(db *gorm.DB) *BookingController {
-	return &BookingController{DB: db}
+func NewBookingController(db *gorm.DB, client *snap.Client) *BookingController {
+	return &BookingController{DB: db, Client: client}
 }
 
 // CreateBooking godoc
@@ -36,19 +42,21 @@ func NewBookingController(db *gorm.DB) *BookingController {
 // @Failure 500 {object} models.APIResponse
 // @Router /api/v1/user/bookings [post]
 func (bc *BookingController) CreateBooking(c *fiber.Ctx) error {
+	// Handle user ID extraction
 	userID := c.Locals("user_id").(uint)
 
+	// Parse request body
 	var request models.BookingRequest
 	if err := c.BodyParser(&request); err != nil {
 		return utils.HandleError(c, err, "Invalid request body")
 	}
 
-	// Validate request
-	if err := utils.ValidateStruct(&request); err != nil {
+	// Validate struct using direct validation
+	if err := utils.ValidateStruct(request); err != nil {
 		return utils.HandleValidationErrors(c, err)
 	}
 
-	// Verify venue exists and is active
+	// Venue verification
 	var venue models.Venue
 	if err := bc.DB.Where("id = ? AND is_active = ?", request.VenueID, true).First(&venue).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -57,39 +65,64 @@ func (bc *BookingController) CreateBooking(c *fiber.Ctx) error {
 		return utils.HandleError(c, err, "Failed to fetch venue")
 	}
 
-	// Validate booking time
+	// Time validation
 	if request.StartTime.Before(time.Now()) {
 		return utils.HandleError(c, fiber.NewError(fiber.StatusBadRequest, "Cannot book in the past"), "")
 	}
 
-	// Check if venue is open during booking time
-	startTimeStr := request.StartTime.Format("15:04")
+	// Venue opening hours check
 	endTime := request.StartTime.Add(time.Duration(request.Duration) * time.Hour)
-	endTimeStr := endTime.Format("15:04")
-
-	if !venue.IsOpenAt(startTimeStr) || !venue.IsOpenAt(endTimeStr) {
-		return utils.HandleError(c, fiber.NewError(fiber.StatusBadRequest, "Venue is closed during requested time"), "")
+	if !venue.IsOpenAt(request.StartTime.Format("15:04")) || !venue.IsOpenAt(endTime.Format("15:04")) {
+		return utils.HandleError(c, fiber.NewError(fiber.StatusConflict, "Venue is closed during requested time"), "")
 	}
 
-	// Check for booking conflicts
+	// Booking conflict check
 	var conflictCount int64
-	err := bc.DB.Model(&models.Booking{}).
-		Where("venue_id = ? AND status IN ?", request.VenueID, []string{"pending", "confirmed"}).
-		Where("start_time < ? AND DATE_ADD(start_time, INTERVAL duration HOUR) > ?", endTime, request.StartTime).
-		Count(&conflictCount).Error
+	conflictQuery := bc.DB.Model(&models.Booking{}).
+		Where("venue_id = ? AND status IN ?", request.VenueID, []string{string(models.BookingStatusPending), string(models.BookingStatusConfirmed)}).
+		Where("start_time < ? AND TIMESTAMPADD(HOUR, duration, start_time) > ?", endTime, request.StartTime)
 
-	if err != nil {
+	if err := conflictQuery.Count(&conflictCount).Error; err != nil {
 		return utils.HandleError(c, err, "Failed to check booking conflicts")
 	}
-
 	if conflictCount > 0 {
 		return utils.HandleError(c, fiber.NewError(fiber.StatusConflict, "Venue already booked for the selected time slot"), "")
 	}
 
-	// Calculate total price
+	// Price calculation
 	totalPrice := float64(request.Duration) * venue.PricePerHour
 
-	// Create booking
+	// User verification
+	var user models.User
+	if err := bc.DB.Select("id, name, email, phone").First(&user, userID).Error; err != nil {
+		return utils.HandleError(c, err, "User not found")
+	}
+	if user.Email == "" {
+		return utils.HandleError(c, fiber.NewError(fiber.StatusBadRequest, "User email is required for booking"), "")
+	}
+
+	// Transaction handling
+	tx := bc.DB.Begin()
+	if tx.Error != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to begin transaction",
+			"error":   tx.Error.Error(),
+		})
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+			log.Printf("Transaction panic: %v", r)
+			c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"success": false,
+				"message": "Internal server error during transaction",
+				"error":   fmt.Sprintf("%v", r),
+			})
+		}
+	}()
+
+	// Create booking record
 	booking := models.Booking{
 		UserID:     userID,
 		VenueID:    request.VenueID,
@@ -100,16 +133,78 @@ func (bc *BookingController) CreateBooking(c *fiber.Ctx) error {
 		Notes:      request.Notes,
 	}
 
-	if err := bc.DB.Create(&booking).Error; err != nil {
+	if err := tx.Create(&booking).Error; err != nil {
+		tx.Rollback()
 		return utils.HandleError(c, err, "Failed to create booking")
 	}
 
-	// Load associations for response
-	if err := bc.DB.Preload("User").Preload("Venue").First(&booking, booking.ID).Error; err != nil {
-		return utils.HandleError(c, err, "Failed to load booking details")
+	// Midtrans client check
+	if bc.Client == nil {
+		tx.Rollback()
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Payment service not available",
+			"error":   "Midtrans client not initialized",
+		})
 	}
 
-	response := booking.ToResponse()
+	// Midtrans transaction
+	orderID := fmt.Sprintf("ORDER-%d", booking.ID)
+	transaction := &snap.Request{
+		TransactionDetails: midtrans.TransactionDetails{
+			OrderID:  orderID,
+			GrossAmt: int64(totalPrice),
+		},
+		CustomerDetail: &midtrans.CustomerDetails{
+			FName: user.Name,
+			Email: user.Email,
+			Phone: user.Phone,
+		},
+	}
+
+	snapResp, err := bc.Client.CreateTransaction(transaction)
+	if err != nil {
+		tx.Rollback()
+		log.Printf("Midtrans error: %v", err)
+		return utils.HandleError(c, err, "Failed to create payment transaction")
+	}
+
+	// Validate Midtrans response
+	if snapResp == nil || snapResp.RedirectURL == "" || snapResp.Token == "" {
+		tx.Rollback()
+		log.Printf("Invalid Midtrans response: %+v", snapResp)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Invalid payment response",
+			"error":   "Midtrans returned invalid data",
+		})
+	}
+
+	// Update booking with payment URL
+	booking.PaymentUrl = snapResp.RedirectURL
+	if err := tx.Save(&booking).Error; err != nil {
+		tx.Rollback()
+		return utils.HandleError(c, err, "Failed to save payment URL")
+	}
+
+	// Commit transaction
+	if err := tx.Commit().Error; err != nil {
+		return utils.HandleError(c, err, "Failed to commit transaction")
+	}
+
+	// Prepare success response
+	response := fiber.Map{
+		"id":            booking.ID,
+		"user_data":     user.ToResponse(),
+		"venue_data":    venue.ToResponse(),
+		"start_time":    booking.StartTime,
+		"duration":      booking.Duration,
+		"total_price":   booking.TotalPrice,
+		"status":        booking.Status,
+		"payment_url":   snapResp.RedirectURL,
+		"payment_token": snapResp.Token,
+	}
+
 	return utils.SuccessResponse(c, "Booking created successfully", response)
 }
 
@@ -159,7 +254,7 @@ func (bc *BookingController) UpdateBookingStatus(c *fiber.Ctx) error {
 		return utils.HandleError(c, err, "Failed to update booking")
 	}
 
-	response := booking.ToResponse()
+	response := booking.ToResponse("", "")
 	return utils.SuccessResponse(c, "Booking status updated successfully", response)
 }
 
@@ -276,7 +371,7 @@ func (bc *BookingController) GetUserBookings(c *fiber.Ctx) error {
 	// Convert to response format
 	var bookingResponses []models.BookingResponse
 	for _, booking := range bookings {
-		bookingResponses = append(bookingResponses, booking.ToResponse())
+		bookingResponses = append(bookingResponses, booking.ToResponse("", ""))
 	}
 
 	// Create pagination metadata
@@ -327,7 +422,7 @@ func (bc *BookingController) CancelBooking(c *fiber.Ctx) error {
 		return utils.HandleError(c, err, "Failed to cancel booking")
 	}
 
-	response := booking.ToResponse()
+	response := booking.ToResponse("", "")
 	return utils.SuccessResponse(c, "Booking cancelled successfully", response)
 }
 
@@ -394,7 +489,7 @@ func (bc *BookingController) HistoryBookingUser(c *fiber.Ctx) error {
 	// Convert to response format
 	var bookingResponses []models.BookingResponse
 	for _, booking := range bookings {
-		bookingResponses = append(bookingResponses, booking.ToResponse())
+		bookingResponses = append(bookingResponses, booking.ToResponse("", ""))
 	}
 
 	// Create pagination metadata

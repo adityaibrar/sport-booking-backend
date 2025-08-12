@@ -5,6 +5,9 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/midtrans/midtrans-go"
+	"github.com/midtrans/midtrans-go/snap"
+
 	"github.com/joho/godotenv"
 )
 
@@ -33,6 +36,14 @@ type Config struct {
 	// Rate limiting
 	RateLimitMax      int
 	RateLimitDuration time.Duration
+	Midtrans          MidtransConfig
+}
+
+type MidtransConfig struct {
+	ServerKey   string
+	ClientKey   string
+	Environment midtrans.EnvironmentType
+	Client      snap.Client
 }
 
 // Load environment variables
@@ -44,7 +55,18 @@ func init() {
 }
 
 // LoadConfig loads configuration from environment variables with defaults
+
 func LoadConfig() *Config {
+	// Initialize Midtrans environment
+	midtransEnv := midtrans.Sandbox
+	if getEnv("MIDTRANS_ENV", "sandbox") == "production" {
+		midtransEnv = midtrans.Production
+	}
+
+	// Initialize Snap client
+	snapClient := snap.Client{}
+	snapClient.New(getEnv("MIDTRANS_SERVER_KEY", ""), midtransEnv)
+
 	config := &Config{
 		// Server defaults
 		Host: getEnv("HOST", "0.0.0.0"),
@@ -69,6 +91,13 @@ func LoadConfig() *Config {
 		// Rate limiting defaults
 		RateLimitMax:      getIntEnv("RATE_LIMIT_MAX", 100),
 		RateLimitDuration: getDurationEnv("RATE_LIMIT_DURATION", time.Minute),
+		// Midtrans configuration
+		Midtrans: MidtransConfig{
+			ServerKey:   getEnv("MIDTRANS_SERVER_KEY", ""),
+			ClientKey:   getEnv("MIDTRANS_CLIENT_KEY", ""),
+			Environment: midtransEnv,
+			Client:      snapClient,
+		},
 	}
 
 	return config

@@ -5,12 +5,13 @@ import (
 	"sport-booking-backend/utils"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/midtrans/midtrans-go/snap"
 	"gorm.io/gorm"
 )
 
 // SetupUserRoutes configures all user-related routes
-func SetupUserRoutes(version fiber.Router, db *gorm.DB) {
-	bookingController := controllers.NewBookingController(db)
+func SetupUserRoutes(version fiber.Router, db *gorm.DB, client *snap.Client) {
+	bookingController := controllers.NewBookingController(db, client)
 	venueController := controllers.NewVenueController(db)
 	reviewController := controllers.NewReviewController(db)
 
