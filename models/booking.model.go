@@ -26,6 +26,7 @@ type Booking struct {
 	TotalPrice float64       `gorm:"not null" json:"total_price" validate:"required,min=0"`
 	Status     BookingStatus `gorm:"not null;default:'pending';index" json:"status" validate:"required,oneof=pending confirmed completed cancelled"`
 	PaymentUrl string        `gorm:"size:500" json:"payment_url,omitempty"`
+	PaymentExpiry time.Time `gorm:"not null" json:"payment_expiry"` // Expiry time for payment link
 	Notes      string        `gorm:"size:1000" json:"notes,omitempty"` // Additional booking notes
 
 	// Associations

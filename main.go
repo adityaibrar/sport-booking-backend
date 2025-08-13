@@ -3,9 +3,12 @@ package main
 import (
 	"log"
 	"sport-booking-backend/config"
+	"sport-booking-backend/jobs"
 	"sport-booking-backend/middleware"
 	"sport-booking-backend/routes"
+	"time"
 
+	"github.com/go-co-op/gocron"
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -57,6 +60,14 @@ func main() {
 		log.Fatal("Failed to connect to database:", err)
 	}
 
+	scheduler := gocron.NewScheduler(time.UTC)
+
+	scheduler.Every(10).Minutes().Do(func() {
+		jobs.CancelExpiredBookings(db)
+	})
+
+	scheduler.StartAsync()
+
 	// Configure connection pool
 	sqlDB, err := db.DB()
 	if err != nil {
@@ -99,7 +110,6 @@ func main() {
 
 	// Setup API routes
 	routes.SetupRoutes(app, db, &cfg.Midtrans.Client)
-	log.Printf("Midtrans Client: %+v", &cfg.Midtrans.Client)
 	// Setup error handler for 404
 	middleware.SetupErrorHandler(app)
 

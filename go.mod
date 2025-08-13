@@ -14,6 +14,12 @@ require (
 require github.com/midtrans/midtrans-go v1.3.8
 
 require (
+	github.com/go-co-op/gocron v1.37.0 // indirect
+	github.com/robfig/cron/v3 v3.0.1 // indirect
+	go.uber.org/atomic v1.9.0 // indirect
+)
+
+require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/andybalholm/brotli v1.1.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.8 // indirect

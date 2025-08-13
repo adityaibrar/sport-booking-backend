@@ -124,13 +124,14 @@ func (bc *BookingController) CreateBooking(c *fiber.Ctx) error {
 
 	// Create booking record
 	booking := models.Booking{
-		UserID:     userID,
-		VenueID:    request.VenueID,
-		StartTime:  request.StartTime,
-		Duration:   request.Duration,
-		TotalPrice: totalPrice,
-		Status:     models.BookingStatusPending,
-		Notes:      request.Notes,
+		UserID:        userID,
+		VenueID:       request.VenueID,
+		StartTime:     request.StartTime,
+		Duration:      request.Duration,
+		TotalPrice:    totalPrice,
+		Status:        models.BookingStatusPending,
+		Notes:         request.Notes,
+		PaymentExpiry: time.Now().Add(24 * time.Hour), // Set payment expiry to 24 hours from now
 	}
 
 	if err := tx.Create(&booking).Error; err != nil {
@@ -194,15 +195,16 @@ func (bc *BookingController) CreateBooking(c *fiber.Ctx) error {
 
 	// Prepare success response
 	response := fiber.Map{
-		"id":            booking.ID,
-		"user_data":     user.ToResponse(),
-		"venue_data":    venue.ToResponse(),
-		"start_time":    booking.StartTime,
-		"duration":      booking.Duration,
-		"total_price":   booking.TotalPrice,
-		"status":        booking.Status,
-		"payment_url":   snapResp.RedirectURL,
-		"payment_token": snapResp.Token,
+		"id":             booking.ID,
+		"user_data":      user.ToResponse(),
+		"venue_data":     venue.ToResponse(),
+		"start_time":     booking.StartTime,
+		"duration":       booking.Duration,
+		"total_price":    booking.TotalPrice,
+		"status":         booking.Status,
+		"payment_expiry": booking.PaymentExpiry,
+		"payment_url":    snapResp.RedirectURL,
+		"payment_token":  snapResp.Token,
 	}
 
 	return utils.SuccessResponse(c, "Booking created successfully", response)
