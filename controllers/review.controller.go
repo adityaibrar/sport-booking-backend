@@ -103,3 +103,37 @@ func (rc *ReviewController) GetReview(c *fiber.Ctx) error {
 	pagination := models.NewPaginationMeta(reviewFilter.Page, reviewFilter.Limit, total)
 	return utils.SuccessResponseWithPagination(c, "Retrieved reviews successfully", reviewResponse, pagination)
 }
+
+func (rc *ReviewController) DeleteReview(c *fiber.Ctx) error {
+	reviewId := c.Params("id")
+	userId := c.Params("user_id")
+
+	var review models.Review
+	if err := rc.DB.First(&review, reviewId, userId).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return utils.HandleError(c, err, "Review not found")
+		}
+		return utils.HandleError(c, err, "Failed to retrieve review")
+	}
+
+	if err := rc.DB.Delete(&review).Error; err != nil {
+		return utils.HandleError(c, err, "Failed to delete review")
+	}
+	return utils.SuccessResponse(c, "Review deleted successfully", nil)
+}
+
+func (rc *ReviewController) HistoryReviewByUser(c *fiber.Ctx) error {
+	userId := c.Params("id")
+
+	var reviews []models.Review
+	if err := rc.DB.Where("user_id = ?", userId).Find(&reviews).Error; err != nil {
+		return utils.HandleError(c, err, "Failed to retrieve user reviews")
+	}
+
+	var reviewResponses []models.ReviewResponse
+	for _, review := range reviews {
+		reviewResponses = append(reviewResponses, review.ToResponse())
+	}
+
+	return utils.SuccessResponse(c, "Retrieved user reviews successfully", reviewResponses)
+}
